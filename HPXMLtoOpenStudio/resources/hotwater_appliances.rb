@@ -10,6 +10,9 @@ class HotWaterAndAppliances
     has_uncond_bsmnt = hpxml.has_space_type(HPXML::LocationBasementUnconditioned)
     fixtures_usage_multiplier = hpxml.water_heating.water_fixtures_usage_multiplier
     living_space = spaces[HPXML::LocationLivingSpace]
+    
+    ec_adj = get_dist_energy_consumption_adjustment(has_uncond_bsmnt, cfa, ncfl, hot_water_distribution)
+    model.getBuilding.additionalProperties.setFeature('ec_adj', ec_adj.to_f)
 
     # Get appliances, etc.
     if not hpxml.clothes_washers.empty?
@@ -171,12 +174,12 @@ class HotWaterAndAppliances
       if gpd_frac > 0
         # Fixtures (showers, sinks, baths)
         fx_gpd = get_fixtures_gpd(eri_version, nbeds, fixtures_all_low_flow, daily_mw_fractions, fixtures_usage_multiplier)
-        fx_peak_flow = water_schedule.calcPeakFlowFromDailygpm(fx_gpd)
+        fx_peak_flow = water_schedule.calcPeakFlowFromDailygpm(fx_gpd) * ec_adj
         add_water_use_equipment(model, Constants.ObjectNameFixtures, fx_peak_flow * gpd_frac * non_solar_fraction, water_schedule.schedule, mw_schedule, water_use_connections[water_heating_system.id])
 
         # Distribution waste (primary driven by fixture draws)
         w_gpd = get_dist_waste_gpd(eri_version, nbeds, has_uncond_bsmnt, cfa, ncfl, hot_water_distribution, fixtures_all_low_flow, fixtures_usage_multiplier)
-        dist_water_peak_flow = water_schedule.calcPeakFlowFromDailygpm(w_gpd)
+        dist_water_peak_flow = water_schedule.calcPeakFlowFromDailygpm(w_gpd) * ec_adj
         add_water_use_equipment(model, Constants.ObjectNameDistributionWaste, dist_water_peak_flow * gpd_frac * non_solar_fraction, water_schedule.schedule, mw_schedule, water_use_connections[water_heating_system.id])
 
         # Recirculation pump
@@ -200,7 +203,7 @@ class HotWaterAndAppliances
           gpd_frac = water_heating_system.fraction_dhw_load_served
         end
         if not gpd_frac.nil?
-          cw_peak_flow = cw_schedule.calcPeakFlowFromDailygpm(cw_gpd)
+          cw_peak_flow = cw_schedule.calcPeakFlowFromDailygpm(cw_gpd) * ec_adj
           add_water_use_equipment(model, Constants.ObjectNameClothesWasher, cw_peak_flow * gpd_frac * non_solar_fraction, cw_schedule.schedule, setpoint_scheds[water_heating_system.id], water_use_connections[water_heating_system.id])
         end
       end
@@ -215,7 +218,7 @@ class HotWaterAndAppliances
         gpd_frac = water_heating_system.fraction_dhw_load_served
       end
       if not gpd_frac.nil?
-        dw_peak_flow = dw_schedule.calcPeakFlowFromDailygpm(dw_gpd)
+        dw_peak_flow = dw_schedule.calcPeakFlowFromDailygpm(dw_gpd) * ec_adj
         add_water_use_equipment(model, Constants.ObjectNameDishwasher, dw_peak_flow * gpd_frac * non_solar_fraction, dw_schedule.schedule, setpoint_scheds[water_heating_system.id], water_use_connections[water_heating_system.id])
       end
     end
@@ -545,14 +548,7 @@ class HotWaterAndAppliances
     return annual_kwh, frac_sens, frac_lat
   end
 
-  def self.get_dist_energy_consumption_adjustment(has_uncond_bsmnt, cfa, ncfl,
-                                                  water_heating_system, hot_water_distribution)
-
-    if water_heating_system.fraction_dhw_load_served <= 0
-      # No fixtures; not accounting for distribution system
-      return 1.0
-    end
-
+  def self.get_dist_energy_consumption_adjustment(has_uncond_bsmnt, cfa, ncfl, hot_water_distribution)
     # ANSI/RESNET 301-2014 Addendum A-2015
     # Amendment on Domestic Hot Water (DHW) Systems
     # Eq. 4.2-16

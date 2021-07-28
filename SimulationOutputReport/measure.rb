@@ -485,6 +485,9 @@ class SimulationOutputReport < OpenStudio::Measure::ReportingMeasure
                   include_timeseries_zone_temperatures,
                   include_timeseries_airflows,
                   include_timeseries_weather)
+    
+    ec_adj = @model.getBuilding.additionalProperties.getFeatureAsDouble('ec_adj').get
+    
     outputs = {}
 
     if include_timeseries_fuel_consumptions
@@ -602,6 +605,7 @@ class SimulationOutputReport < OpenStudio::Measure::ReportingMeasure
     @hot_water_uses.each do |hot_water_type, hot_water|
       keys = @model.getWaterUseEquipments.select { |wue| wue.waterUseEquipmentDefinition.endUseSubcategory == hot_water.subcat }.map { |d| d.name.to_s.upcase }
       hot_water.annual_output = get_report_variable_data_annual(keys, [hot_water.variable], UnitConversions.convert(1.0, 'm^3', hot_water.annual_units))
+      hot_water.annual_output /= ec_adj
       if include_timeseries_hot_water_uses
         hot_water.timeseries_output = get_report_variable_data_timeseries(keys, [hot_water.variable], UnitConversions.convert(1.0, 'm^3', hot_water.timeseries_units), 0, timeseries_frequency)
       end
@@ -731,6 +735,7 @@ class SimulationOutputReport < OpenStudio::Measure::ReportingMeasure
       hvac_id = get_combi_hvac_id(sys_id)
       if not hvac_id.nil?
         @fuels.keys.reverse.each do |fuel_type| # Reverse so that FT::Elec is considered last
+          next # FIXME
           htg_end_use = @end_uses[[fuel_type, EUT::Heating]]
           next unless htg_end_use.annual_output_by_system[hvac_id] > 0
 
@@ -749,26 +754,6 @@ class SimulationOutputReport < OpenStudio::Measure::ReportingMeasure
           end
           break # only apply once
         end
-      end
-
-      # Adjust water heater/appliances energy consumptions
-      @fuels.keys.reverse.each do |fuel_type| # Reverse so that FT::Elec is considered last
-        end_use = @end_uses[[fuel_type, EUT::HotWater]]
-        next if end_use.nil?
-        next if end_use.variables.nil?
-        next unless end_use.annual_output_by_system[sys_id] > 0
-
-        ec_vars = ep_output_names.select { |name| name.include? Constants.ObjectNameWaterHeaterAdjustment(nil) }
-
-        ec_adj = get_report_variable_data_annual(['EMS'], ec_vars)
-        break if ec_adj == 0 # No adjustment
-
-        end_use.annual_output_by_system[sys_id] += ec_adj
-        if include_timeseries_end_use_consumptions
-          ec_adj_timeseries = get_report_variable_data_timeseries(['EMS'], ec_vars, UnitConversions.convert(1.0, 'J', end_use.timeseries_units), 0, timeseries_frequency)
-          end_use.timeseries_output_by_system[sys_id] = end_use.timeseries_output_by_system[sys_id].zip(ec_adj_timeseries).map { |x, y| x + y }
-        end
-        break # only apply once
       end
 
       # Can only be one solar thermal system
@@ -810,6 +795,7 @@ class SimulationOutputReport < OpenStudio::Measure::ReportingMeasure
     # Hot Water Load - Tank Losses (excluding solar storage tank)
     @loads[LT::HotWaterTankLosses].annual_output = get_report_variable_data_annual(solar_keys, ['Water Heater Heat Loss Energy'], not_key: true)
     @loads[LT::HotWaterTankLosses].annual_output *= -1.0 if @loads[LT::HotWaterTankLosses].annual_output < 0
+    @loads[LT::HotWaterTankLosses].annual_output /= ec_adj
 
     # Apply solar fraction to load for simple solar water heating systems
     outputs[:hpxml_dhw_sys_ids].each do |sys_id|
