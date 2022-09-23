@@ -11,7 +11,7 @@ require_relative '../HPXMLtoOpenStudio/resources/version'
 basedir = File.expand_path(File.dirname(__FILE__))
 
 def run_workflow(basedir, rundir, hpxml, debug, timeseries_output_freq, timeseries_outputs, skip_validation, add_comp_loads,
-                 output_format, building_id, ep_input_format, detailed_schedules_type)
+                 output_format, building_id, ep_input_format, detailed_schedules_type, schedules_random_seed)
   measures_dir = File.join(basedir, '..')
 
   measures = {}
@@ -23,7 +23,8 @@ def run_workflow(basedir, rundir, hpxml, debug, timeseries_output_freq, timeseri
     args['hpxml_path'] = hpxml
     args['hpxml_output_path'] = hpxml
     args['schedules_type'] = detailed_schedules_type
-    args['output_csv_path'] = "workflow/sample_files/run/#{detailed_schedules_type}.csv"
+    args['output_csv_path'] = File.join(basedir, "#{detailed_schedules_type}.csv")
+    args['schedules_random_seed'] = schedules_random_seed
     update_args_hash(measures, measure_subdir, args)
   end
 
@@ -59,7 +60,7 @@ def run_workflow(basedir, rundir, hpxml, debug, timeseries_output_freq, timeseri
   args['output_format'] = output_format
   update_args_hash(measures, measure_subdir, args)
 
-  results = run_hpxml_workflow(rundir, measures, measures_dir, debug: debug, ep_input_format: ep_input_format)
+  results = run_hpxml_workflow(rundir, measures, measures_dir, debug: debug, ep_input_format: ep_input_format, run_measures_only: true)
 
   return results[:success]
 end
@@ -123,6 +124,10 @@ OptionParser.new do |opts|
 
   opts.on('-b', '--building-id <ID>', 'ID of Building to simulate (required when multiple HPXML Building elements)') do |t|
     options[:building_id] = t
+  end
+  
+  opts.on('-r', '--random-seed <#>', 'Random seed') do |t|
+    options[:schedules_random_seed] = t
   end
 
   options[:version] = false
@@ -205,7 +210,7 @@ rundir = File.join(options[:output_dir], 'run')
 puts "HPXML: #{options[:hpxml]}"
 success = run_workflow(basedir, rundir, options[:hpxml], options[:debug], timeseries_output_freq, timeseries_outputs,
                        options[:skip_validation], options[:add_comp_loads], options[:output_format], options[:building_id],
-                       options[:ep_input_format], options[:detailed_schedules_type])
+                       options[:ep_input_format], options[:detailed_schedules_type], options[:schedules_random_seed])
 
 if not success
   exit! 1
